@@ -1,0 +1,8 @@
+digraph G {
+	start [shape=Mdiamond]
+	end [shape=Msquare]
+	start -> bb_0
+	bb_0 -> somewhere
+	bb_1 -> somewhere
+	somewhere -> end
+}
