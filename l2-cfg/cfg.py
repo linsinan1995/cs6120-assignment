@@ -110,7 +110,7 @@ def get_stat(cfg):
     for k, v in cfg.items():
         for inst in v.block:
             n_inst += 1
-            n_arg += len([arg for arg in inst.get('args', []) if isinstance(arg, str)] and arg not in ('True', 'False')) +\
+            n_arg += len([arg for arg in inst.get('args', []) if isinstance(arg, str) and arg not in ('True', 'False')]) +\
                     1 if inst.get('dest', False) else 0
     return n_inst, n_arg
 

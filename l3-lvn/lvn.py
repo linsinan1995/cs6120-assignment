@@ -122,7 +122,11 @@ def opt_bb_lvn(cfg, canonicalize=lambda x:x, verbose=False):
         # get table enty at index arg.content
         return next(itertools.islice(table.items(), idx, idx+1))
 
-    def arithmetic_cf(inst):
+    def arithmetic_cse(inst):
+        if verbose:
+            has_cse = False
+            inst_copy = deepcopy(inst)
+
         if inst['op'] == 'add' and \
               not isinstance(inst['args'][0], str) and \
               not isinstance(inst['args'][1], str):
@@ -131,6 +135,7 @@ def opt_bb_lvn(cfg, canonicalize=lambda x:x, verbose=False):
                 'op': 'const',
                 'value': inst['args'][0] + inst['args'][1]
             }
+            has_cse = True
         elif inst['op'] == 'mul' and \
               not isinstance(inst['args'][0], str) and \
               not isinstance(inst['args'][1], str):
@@ -139,11 +144,15 @@ def opt_bb_lvn(cfg, canonicalize=lambda x:x, verbose=False):
                 'op': 'const',
                 'value': inst['args'][0] * inst['args'][1]
             }
+            has_cse = True
+
+        if verbose and has_cse:
+            print(f"\tcommon subexpression elimination! The instruction is converted from {inst_copy} into {inst}")
 
         return inst
 
     def constant_folding(inst, args):
-        cf_flag = False
+        has_cf = False
         if verbose:
             inst_prev = deepcopy(inst)
 
@@ -157,45 +166,26 @@ def opt_bb_lvn(cfg, canonicalize=lambda x:x, verbose=False):
                     args[j] = Argument(var.rhs1.content)
                     # update on original block
                     inst["args"][j] = var.rhs1.content
-                cf_flag = True
+                has_cf = True
 
-        inst = arithmetic_cf(inst)
+        if verbose and has_cf:
+            print(f"\tconstant folding! The instruction is converted from {inst_prev} to {inst}")
+
+        inst = arithmetic_cse(inst)
+
         # update argument list if constant folding happened
-        if cf_flag:
+        if has_cf:
             args = Argument.build(inst, hashmap)
             args = [var if var.is_const else var.update(hashmap.get_index(var.content)) for var in args]
 
-            if verbose:
-                print(f"\tconstant folding! the instruction is converted from {inst_prev} to {inst}")
         return inst, args
 
     def perform(block, label_name, table, hashmap):
         # global target_label
-        last_def = dict() # (var, idx)->index of inst
+        last_def = dict() # (var, idx)->index of inst, track reassignment & unused variable
         will_delete = set()  # [idx of inst]
 
         for i, inst in enumerate(block):
-            # todo: only dump branching info
-            # if inst['op'] in _cfg._jmp:
-            #     if inst['op'] == 'br':
-            #         cond = inst['args'][0]
-            #         var, _ = get_entry_from_table(hashmap.get_index(cond))
-            #         # assume middle end will convert biop into a temp variable
-            #         if var.arglen == 1 and var.rhs1.is_const:
-            #             target_label = inst['labels'][0] if var.rhs1.content else inst['labels'][1]
-            #             branching_backet[target_label] = (label_name, i)
-            #             if verbose:
-            #                 print(f"detect constant branching to '{target_label}', original instruction: {inst}, cond = {var}")
-            #         else:
-            #             target_label = inst['labels']
-            #             branching_backet[target_label[0]] = (label_name, i)
-            #             branching_backet[target_label[1]] = (label_name, i)
-
-            #     elif inst['op'] == 'jmp':
-            #         if verbose:
-            #             print(f"detect jmp to '{inst['labels'][0]}'")
-            #         target_label = inst['labels'][0]
-            #         branching_backet[target_label] = (label_name, i)
             if 'args' in inst or inst['op'] == 'const':
                 args = Argument.build(inst, hashmap)
                 args = [var if var.is_const else var.update(hashmap.get_index(var.content)) for var in args]
@@ -243,7 +233,7 @@ def opt_bb_lvn(cfg, canonicalize=lambda x:x, verbose=False):
         # dce delete instructions
         for  idx in reversed(list(will_delete)):
             if verbose:
-                print("\tdelete instruction: ", block.pop(idx))
+                print("\tdead code elimination! delete instruction", block.pop(idx))
             else:
                 block.pop(idx)
         return block, bool(len(will_delete))
@@ -258,24 +248,6 @@ def opt_bb_lvn(cfg, canonicalize=lambda x:x, verbose=False):
         table = OrderedDict()
         hashmap = ValueIdxMap()
         for i, (k, v) in enumerate(cfg.items()):
-            # todo: overlapping backward branching & impact on farward branching
-
-            # constant backward branching & there is no unknown branching before
-            # if k in branching_backet and len(branching_backet) == 1:
-            #     if verbose:
-            #         print(f"detected removable backward branching to '{k}'")
-            #     # delete block between branching_backet[k].i to current block
-            #     label, insn_idx = branching_backet.pop(k)
-            #     # delete insn
-            #     cfg[label].block = cfg[label].block[(insn_idx-1):]
-            #     start_delete = False
-            #     for _k, _v in enumerate(cfg.items()):
-            #         if _k == label:
-            #             start_delete = True
-            #         elif _k == k:
-            #             break
-            #         elif start_delete:
-            #             cfg.pop(_k)
             cfg[k].block, is_converge_block = perform(v.block, k, table, hashmap)
             is_not_converge &= is_converge_block
 
@@ -284,7 +256,8 @@ def opt_bb_lvn(cfg, canonicalize=lambda x:x, verbose=False):
                 f" Current # instruction {sum([len(v.block) for v in cfg.values()])}")
             niter += 1
 
-    print("========================================================================================\n")
+    if verbose:
+        print("========================================================================================\n")
     return cfg
 
 def add_mul_canonicalize(val):
