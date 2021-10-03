@@ -25,10 +25,12 @@ class CfgItem:
         self.succ = []
 
 def load():
+    """read json-formatted standard input"""
     prog = json.load(sys.stdin)
     return prog
 
 def build_block(insts):
+    """parse Inst to Basic Block"""
     bblock = []
     for inst in insts:
         if 'label' in inst:
@@ -47,6 +49,7 @@ def build_block(insts):
     yield bblock
 
 def build_cfg(functs):
+    """parse IR to CFG"""
     name_template = "bb_"
     cnt = 0
     cfg = OrderedDict()
@@ -78,6 +81,7 @@ def build_cfg(functs):
     return cfg
 
 def visualize_cfg(cfg):
+    """input a CFG, and output a dot script for the CFG structure"""
     from graphviz import Digraph
     length = len(cfg)
     if length == 0:
@@ -98,6 +102,17 @@ def visualize_cfg(cfg):
             for one_succ in v.succ:
                 g.edge(k, one_succ)
     g.save()
+
+def get_stat(cfg):
+    """get the number of instruction in a CFG"""
+    n_inst = 0
+    n_arg = 0
+    for k, v in cfg.items():
+        for inst in v.block:
+            n_inst += 1
+            n_arg += len(inst.get('args', [])) +\
+                    1 if inst.get('dest', False) else 0
+    return n_inst, n_arg
 
 if __name__ == "__main__":
     functs = load()
